@@ -23,6 +23,7 @@ import ast
 import json
 import re
 import statsmodels.api as sm
+from scipy.stats import entropy
 
 from constants import *
 
@@ -140,6 +141,39 @@ def calculate_information_loss(original_df, anonymized_df, NQIs, CQIs, denominat
     infoloss=total_loss/denominator
 
     return infoloss
+
+def calculate_k_constraint(anonymized_df, k, n_cluster):
+
+    # Count the number of records per cluster
+    num_records_per_cluster = anonymized_df['cluster'].value_counts()
+
+    # Identify clusters that violate the k constraint
+    violating_clusters = num_records_per_cluster[num_records_per_cluster < k]
+
+    # Calculate the total number of k-violations (sum the deficits)
+    total_k_violation = np.sum(k - violating_clusters)
+
+    return {
+        "k violation": total_k_violation,
+        "violating clusters": violating_clusters
+    }
+
+
+def calculate_entropy_of_SA(anonymized_data, SA):
+    
+    # Step 1: Extract relevant data
+    SA_data = anonymized_data[SA + ['cluster']]
+    
+    # Step 2: Compute value counts for each SA within each cluster
+    value_counts = SA_data.groupby('cluster')[SA].apply(lambda x: x.apply(lambda col: col.value_counts()))
+    
+    # Step 3: Compute entropy using base 2 for each SA
+    entropy_matrix = value_counts.applymap(lambda counts: entropy(counts.dropna(), base=2) if isinstance(counts, pd.Series) else np.nan)
+    
+    # Step 4: Compute minimum entropy for each SA across clusters
+    entropy_SA = entropy_matrix.min()
+    
+    return entropy_SA
 
 
 def normalize_data(value, min_value, max_value):

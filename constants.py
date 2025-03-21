@@ -29,11 +29,11 @@ from constants import *
 import particle_swarm
 
 # Numeric Quasi-identifiers in the dataset
-NQIs = ['AgeCategory', 'LOSDays', 'NumberofVisits']
+NQIs = ['Age', 'Income']
 # Categorical Quasi-identifiers in the dataset
-CQIs = ['GenderDescription','RaceDescription','EthnicGroupDescription']
+CQIs = ['Gender','Race','Ethnic']
 # Sensitive Attribute in the dataset
-# SA = []
+SA = ['DiseaseHistory']
 
 
 

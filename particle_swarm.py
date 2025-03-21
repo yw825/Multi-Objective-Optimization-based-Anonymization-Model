@@ -117,25 +117,6 @@ def initialize_particles(n_population, NQIs, CQIs, bounds, df, n_cluster):
     return particles
 
 
-
-def calculate_k_constraint(anonymized_df, k, n_cluster):
-
-    # Count the number of records per cluster
-    num_records_per_cluster = anonymized_df['cluster'].value_counts()
-
-    # Identify clusters that violate the k constraint
-    violating_clusters = num_records_per_cluster[num_records_per_cluster < k]
-
-    # Calculate the total number of k-violations (sum the deficits)
-    total_k_violation = np.sum(k - violating_clusters)
-
-    return {
-        "k violation": total_k_violation,
-        "violating clusters": violating_clusters
-    }
-
-
-
 def update_categorical_variables(particle_categorical, CQIs, centv, levels):
 
     # Ensure centv is a 2D array (n_particles, n_categories)
@@ -219,9 +200,9 @@ def run_particle_swarm_experiment(df, models, param_combinations, NQIs, CQIs, n_
 
     for param_comb in param_combinations:
         # Unpack parameters
-        gamma, k_val, n_cluster_val, l_multi_k_val, l_multi_ML_val = param_comb
+        gamma, k_val, n_cluster_val, l_multi_k_val, l_multi_IL_val, l_multi_entropy_val = param_comb
 
-        print(f"Running with k = {k_val}, n_cluster = {n_cluster_val}, l_multi_k = {l_multi_k_val}, l_multi_ML = {l_multi_ML_val}")
+        print(f"Running with k = {k_val}, n_cluster = {n_cluster_val}, l_multi_k = {l_multi_k_val}, l_multi_IL = {l_multi_IL_val}, l_multi_entropy = {l_multi_entropy_val}")
 
         for name, model in models:
             print(f"Training model: {name}")
@@ -233,14 +214,8 @@ def run_particle_swarm_experiment(df, models, param_combinations, NQIs, CQIs, n_
             centv = np.zeros((n_population, n_cluster_val, len(NQIs) + len(CQIs)), dtype=object)
             fit = np.zeros(n_population)
             k_violation = np.zeros(n_population)
-
-            accuracy_score = np.zeros(n_population)
-            precision_score = np.zeros(n_population)
-            recall_score = np.zeros(n_population)
-            f1_score = np.zeros(n_population)
-            auc_score = np.zeros(n_population)
-            loss_score = np.zeros(n_population)
-            confusion_matrix = np.zeros((n_population, 2, 2))
+            loss_score = np.zeros(n_population)        
+            entropy_score = np.zeros(n_population)
 
             # Initialize best solutions
             global_best_fit = float('inf')
@@ -258,43 +233,31 @@ def run_particle_swarm_experiment(df, models, param_combinations, NQIs, CQIs, n_
                     # Generate anonymized data
                     anonymized_df = get_anonymized_data(df, CQIs, NQIs, particles[i], gamma)
 
+                    # Calculate information loss
+                    loss_score[i] = utils.calculate_information_loss(anonymized_df, df, NQIs, CQIs)
+
+                    # Calculate entropy
+                    entropy_score[i] =  utils.calculate_entropy_of_SA(anonymized_df, SA)
+
                     # Check k-anonymity constraint
-                    k_anonymity = calculate_k_constraint(anonymized_df, k_val, n_cluster_val)
+                    k_anonymity = utils.calculate_k_constraint(anonymized_df, k_val, n_cluster_val)
                     k_violation[i] = k_anonymity['k violation']
-
-                    # Encode categorical variables
-                    anonymized_df_encoded = utils.encode_categorical_from_file(anonymized_df)
-
-                    # Train ML model and get evaluation metrics
-                    avg_accuracy, avg_precision, avg_recall, avg_f1_score, avg_auc, avg_loss, avg_cm = model_train.train_model_bootstrap(
-                        anonymized_df_encoded, model, n_bootstrap
-                    )
-
-                    accuracy_score[i] = avg_accuracy
-                    precision_score[i] = avg_precision
-                    recall_score[i] = avg_recall
-                    f1_score[i] = avg_f1_score
-                    auc_score[i] = avg_auc
-                    loss_score[i] = avg_loss
-                    confusion_matrix[i] = avg_cm
 
                     iteration_info.append({
                         "ML model": name,
                         "Iteration": iteration,
                         "Particle": i,
                         "k violation": k_violation[i],
-                        "Accuracy": avg_accuracy,
-                        "Precision": avg_precision,
-                        "Recall": avg_recall,
-                        "F1 score": avg_f1_score,
-                        "AUC": avg_auc,
-                        "Entropy-Loss": avg_loss,
-                        "Confusion matrix": avg_cm
+                        "Information loss": loss_score[i],
+                        "Entropy": entropy_score[i]
                     })
 
                     # Compute objective function
                     normalized_k_violation = utils.normalize_data(k_violation[i], 0, 500)
-                    fit[i] = l_multi_k_val * normalized_k_violation + l_multi_ML_val * avg_loss
+                    normalized_loss_score = utils.normalize_data(loss_score[i], 0, 1)
+                    normalized_entropy_score = utils.normalize_data(entropy_score[i], 0, 1)
+
+                    fit[i] = l_multi_k_val * normalized_k_violation + l_multi_IL_val * normalized_loss_score + l_multi_entropy_val * normalized_entropy_score
 
                     # Update personal best
                     if fit[i] < pbest_fit[i]:
@@ -316,7 +279,7 @@ def run_particle_swarm_experiment(df, models, param_combinations, NQIs, CQIs, n_
             # Save the best anonymized dataset
             best_anonymized_df = get_anonymized_data(df, CQIs, NQIs, global_best, gamma)
 
-            filename = f"best_anonymized_df_k{k_val}_ncluster{n_cluster_val}_lmk{l_multi_k_val}_lmML{l_multi_ML_val}.csv"
+            filename = f"best_anonymized_df_k{k_val}_ncluster{n_cluster_val}_lmk{l_multi_k_val}_lmIL{l_multi_IL_val}_lmEntropy{l_multi_entropy_val}.csv"
             filepath = os.path.join(filedirectory, filename)
             best_anonymized_df.to_csv(filepath, index=True)
 
@@ -325,8 +288,7 @@ def run_particle_swarm_experiment(df, models, param_combinations, NQIs, CQIs, n_
             # all_results.append(results)
 
             # Clean up memory
-            del particles, centv, fit, k_violation, pbest, pbest_fit, global_best_fit, global_best
-            del accuracy_score, precision_score, recall_score, f1_score, auc_score, confusion_matrix
+            del particles, centv, fit, k_violation, pbest, pbest_fit, global_best_fit, global_best, loss_score, entropy_score
             gc.collect()
 
     return results # all_results
