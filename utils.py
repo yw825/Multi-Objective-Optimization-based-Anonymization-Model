@@ -33,6 +33,8 @@ def data_prep(df):
     for column in df.select_dtypes(include=['object']).columns:
         df[column] = df[column].astype('category')
 
+    # Add a unique identifier for each record
+    df['id'] = np.arange(len(df))   
    
     return df
 
@@ -59,36 +61,13 @@ def track_errors(X_test, y_test, y_pred):
 
 
 
-def calculate_nqi_cqi_stats(df, NQIs, CQIs):
-
-    stats = {}
-
-    # Compute mean for NQIs
-    for nqi in NQIs:
-        if nqi in df.columns:
-            stats[nqi] = df[nqi].mean()
-    
-    # Compute mode for CQIs
-    for cqi in CQIs:
-        if cqi in df.columns:
-            stats[cqi] = df[cqi].mode()[0]  # mode() returns a Series, take first mode
-
-    return stats
-
-
-
 def calculate_denominator(df, NQIs, CQIs):
 
     # For NQIs, use NumPy for vectorized calculation of squared deviations from the mean
-    denominator_nqi = sum(np.sum((df[nqi].values - df[nqi].mean())**2) for nqi in NQIs if nqi in df.columns)
+    denominator_nqi = np.sum((df[NQIs].values - df[NQIs].mean(axis=0).values) ** 2)
     
     # For CQIs, use NumPy to calculate how many different values exist compared to the mode
-    denominator_cqi = 0
-    for cqi in CQIs:
-        if cqi in df.columns:
-            mode_cqi = df[cqi].mode()[0]  # Get the most frequent category for the CQI
-            # Use NumPy to count non-mode values
-            denominator_cqi += np.sum(df[cqi].values != mode_cqi)
+    denominator_cqi = sum(np.sum(df[CQIs].ne(df[CQIs].mode().iloc[0])))
     
     # Total denominator is the sum of the variances for NQIs and deviations for CQIs
     denominator = denominator_nqi + denominator_cqi
@@ -123,11 +102,11 @@ def get_nqi_bounds(df, NQIs):
 
 
 
-def calculate_information_loss(original_df, anonymized_df, NQIs, CQIs, denominator):
+def calculate_information_loss(original_df,anonymized_df, NQIs, CQIs):
 
-    # Sort original data and anonymized data by 'PatientIdentifier'
-    original_df = original_df.sort_index()
-    anonymized_df = anonymized_df.sort_index()
+    # Sort original data and anonymized data by unique identifier (id)
+    original_df = original_df.sort_values('id')
+    anonymized_df = anonymized_df.sort_values('id')
     
     # Compute squared differences for numerical quasi-identifiers
     num_loss = np.sum((original_df[NQIs].values - anonymized_df[NQIs].values) ** 2)
@@ -137,6 +116,9 @@ def calculate_information_loss(original_df, anonymized_df, NQIs, CQIs, denominat
 
     # Total information loss per record
     total_loss = num_loss + cat_loss
+
+    # Calculate denominator for normalization
+    denominator = calculate_denominator(original_df, NQIs, CQIs)
 
     infoloss=total_loss/denominator
 
@@ -159,21 +141,25 @@ def calculate_k_constraint(anonymized_df, k, n_cluster):
     }
 
 
-def calculate_entropy_of_SA(anonymized_data, SA):
+def calculate_entropy_of_SA(anonymized_data, SA_columns):
+    # Step 1: Extract the relevant data (assuming SA_columns are the columns to compute entropy on)
+    SA_data = anonymized_data[SA_columns + ['cluster']]
     
-    # Step 1: Extract relevant data
-    SA_data = anonymized_data[SA + ['cluster']]
+    # Step 2: Separate the data by cluster
+    SA_by_cluster = SA_data.groupby('cluster')
     
-    # Step 2: Compute value counts for each SA within each cluster
-    value_counts = SA_data.groupby('cluster')[SA].apply(lambda x: x.apply(lambda col: col.value_counts()))
+    # Step 3: Create a function to calculate entropy for each column
+    def calculate_column_entropy(cluster_data, sa_col):
+        value_counts = cluster_data[sa_col].value_counts(normalize=True)
+        return entropy(value_counts, base=2)
+
+    # Step 4: Apply the entropy calculation for each SA column and cluster
+    entropy_matrix = SA_by_cluster[SA_columns].apply(lambda cluster: cluster.apply(lambda col: calculate_column_entropy(cluster, col.name)))
     
-    # Step 3: Compute entropy using base 2 for each SA
-    entropy_matrix = value_counts.applymap(lambda counts: entropy(counts.dropna(), base=2) if isinstance(counts, pd.Series) else np.nan)
+    # Step 5: Compute the minimum entropy for each SA across clusters
+    entropy_SA = np.sum(entropy_matrix, axis=1).min()
     
-    # Step 4: Compute minimum entropy for each SA across clusters
-    entropy_SA = entropy_matrix.min()
-    
-    return entropy_SA
+    return -entropy_SA
 
 
 def normalize_data(value, min_value, max_value):

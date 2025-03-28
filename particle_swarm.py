@@ -19,6 +19,7 @@ from sklearn.model_selection import GridSearchCV
 import gc
 import itertools
 from sklearn.utils import resample
+from scipy.stats import entropy
 
 from constants import *
 import utils
@@ -193,102 +194,98 @@ def update_particles_velocity_and_location(particles, n_population, centv, pbest
 
 
 
-def run_particle_swarm_experiment(df, models, param_combinations, NQIs, CQIs, n_population, 
-                                  maxIter,n_bootstrap, bounds, levels, nqi_means, filedirectory):
+def run_particle_swarm_experiment(df, param_combinations, NQIs, CQIs, SA,n_population, maxIter, bounds, levels, nqi_means, filedirectory):
 
     # all_results = []
 
     for param_comb in param_combinations:
         # Unpack parameters
-        gamma, k_val, n_cluster_val, l_multi_k_val, l_multi_IL_val, l_multi_entropy_val = param_comb
+        gamma, k_val, n_cluster_val, l_multi_IL_val, l_multi_k_val, l_multi_entropy_val = param_comb
 
         print(f"Running with k = {k_val}, n_cluster = {n_cluster_val}, l_multi_k = {l_multi_k_val}, l_multi_IL = {l_multi_IL_val}, l_multi_entropy = {l_multi_entropy_val}")
 
-        for name, model in models:
-            print(f"Training model: {name}")
+        # Initialize storage for results
+        results = []
 
-            # Initialize storage for results
-            results = []
+        # Clean all memory before each model loop
+        centv = np.zeros((n_population, n_cluster_val, len(NQIs) + len(CQIs)), dtype=object)
+        fit = np.zeros(n_population)
+        k_violation = np.zeros(n_population)
+        loss_score = np.zeros(n_population)        
+        entropy_score = np.zeros(n_population)
 
-            # Clean all memory before each model loop
-            centv = np.zeros((n_population, n_cluster_val, len(NQIs) + len(CQIs)), dtype=object)
-            fit = np.zeros(n_population)
-            k_violation = np.zeros(n_population)
-            loss_score = np.zeros(n_population)        
-            entropy_score = np.zeros(n_population)
+        # Initialize best solutions
+        global_best_fit = float('inf')
+        pbest_fit = np.full(n_population, np.inf)
+        pbest = np.zeros((n_population, n_cluster_val, len(NQIs) + len(CQIs)), dtype=object)
 
-            # Initialize best solutions
-            global_best_fit = float('inf')
-            pbest_fit = np.full(n_population, np.inf)
-            pbest = np.zeros((n_population, n_cluster_val, len(NQIs) + len(CQIs)), dtype=object)
+        # Initialize particles
+        particles = initialize_particles(n_population, NQIs, CQIs, bounds, df, n_cluster_val)
 
-            # Initialize particles
-            particles = initialize_particles(n_population, NQIs, CQIs, bounds, df, n_cluster_val)
+        for iteration in range(maxIter):
+            print(f"Iteration: {iteration}")
+            iteration_info = []
 
-            for iteration in range(maxIter):
-                print(f"Iteration: {iteration}")
-                iteration_info = []
+            for i in range(n_population):
+                # Generate anonymized data
+                anonymized_df = get_anonymized_data(df, CQIs, NQIs, particles[i], gamma)
 
-                for i in range(n_population):
-                    # Generate anonymized data
-                    anonymized_df = get_anonymized_data(df, CQIs, NQIs, particles[i], gamma)
+                # Calculate information loss
+                loss_score[i] = utils.calculate_information_loss(df,anonymized_df, NQIs, CQIs)
 
-                    # Calculate information loss
-                    loss_score[i] = utils.calculate_information_loss(anonymized_df, df, NQIs, CQIs)
+                # Calculate entropy
+                entropy_score[i] =  utils.calculate_entropy_of_SA(anonymized_df, SA)
 
-                    # Calculate entropy
-                    entropy_score[i] =  utils.calculate_entropy_of_SA(anonymized_df, SA)
+                # Check k-anonymity constraint
+                k_anonymity = utils.calculate_k_constraint(anonymized_df, k_val, n_cluster_val)
+                k_violation[i] = k_anonymity['k violation']
 
-                    # Check k-anonymity constraint
-                    k_anonymity = utils.calculate_k_constraint(anonymized_df, k_val, n_cluster_val)
-                    k_violation[i] = k_anonymity['k violation']
+                iteration_info.append({
+                    "Iteration": iteration,
+                    "Particle": i,
+                    "Information loss": loss_score[i],
+                    "Entropy": entropy_score[i],
+                    "k violation": k_violation[i]
+                })
 
-                    iteration_info.append({
-                        "ML model": name,
-                        "Iteration": iteration,
-                        "Particle": i,
-                        "k violation": k_violation[i],
-                        "Information loss": loss_score[i],
-                        "Entropy": entropy_score[i]
-                    })
+                # Compute objective function
+                normalized_k_violation = utils.normalize_data(k_violation[i], 0, 500)
+                normalized_loss_score = utils.normalize_data(loss_score[i], 0, 1)
+                normalized_entropy_score = utils.normalize_data(entropy_score[i], 0, 1)
 
-                    # Compute objective function
-                    normalized_k_violation = utils.normalize_data(k_violation[i], 0, 500)
-                    normalized_loss_score = utils.normalize_data(loss_score[i], 0, 1)
-                    normalized_entropy_score = utils.normalize_data(entropy_score[i], 0, 1)
+                fit[i] = l_multi_IL_val * normalized_loss_score + l_multi_entropy_val * normalized_entropy_score + l_multi_k_val * normalized_k_violation 
 
-                    fit[i] = l_multi_k_val * normalized_k_violation + l_multi_IL_val * normalized_loss_score + l_multi_entropy_val * normalized_entropy_score
+                # Update personal best
+                if fit[i] < pbest_fit[i]:
+                    pbest_fit[i] = fit[i]
+                    pbest[i] = particles[i]
 
-                    # Update personal best
-                    if fit[i] < pbest_fit[i]:
-                        pbest_fit[i] = fit[i]
-                        pbest[i] = particles[i]
+            results.append(iteration_info)
 
-                results.append(iteration_info)
+            # Update global best
+            if global_best_fit > min(fit):
+                global_best_fit = min(fit)
+                global_best = particles[np.argmin(fit)]
 
-                # Update global best
-                if global_best_fit > min(fit):
-                    global_best_fit = min(fit)
-                    global_best = particles[np.argmin(fit)]
+            # Update particles
+            particles, centv = update_particles_velocity_and_location(
+                particles, n_population, centv, pbest, global_best, NQIs, CQIs, levels, bounds, nqi_means
+            )
 
-                # Update particles
-                particles, centv = update_particles_velocity_and_location(
-                    particles, n_population, centv, pbest, global_best, NQIs, CQIs, levels, bounds, nqi_means
-                )
+        # Save the best anonymized dataset
+        best_anonymized_df = get_anonymized_data(df, CQIs, NQIs, global_best, gamma)
 
-            # Save the best anonymized dataset
-            best_anonymized_df = get_anonymized_data(df, CQIs, NQIs, global_best, gamma)
+        filename = f"best_anonymized_df_k{k_val}_ncluster{n_cluster_val}_lmk{l_multi_k_val}_lmIL{l_multi_IL_val}_lmEntropy{l_multi_entropy_val}.csv"
+        filepath = os.path.join(filedirectory, filename)
+        best_anonymized_df.to_csv(filepath, index=False)
 
-            filename = f"best_anonymized_df_k{k_val}_ncluster{n_cluster_val}_lmk{l_multi_k_val}_lmIL{l_multi_IL_val}_lmEntropy{l_multi_entropy_val}.csv"
-            filepath = os.path.join(filedirectory, filename)
-            best_anonymized_df.to_csv(filepath, index=True)
+        print(f"Saved the best anonymized data to {filepath}")
 
-            print(f"Saved the best anonymized data to {filepath}")
+        # all_results.append(results)
 
-            # all_results.append(results)
-
-            # Clean up memory
-            del particles, centv, fit, k_violation, pbest, pbest_fit, global_best_fit, global_best, loss_score, entropy_score
-            gc.collect()
+        # Clean up memory
+        del particles, centv, fit, k_violation, pbest, pbest_fit, global_best_fit, global_best, loss_score, entropy_score
+        gc.collect()
+            
 
     return results # all_results
