@@ -30,7 +30,7 @@ import particle_swarm
 
 # German Credit Dataset
 # Path to the dataset
-path = '/Users/yusiwei/Library/CloudStorage/OneDrive-Personal/research/Third Year Paper/experiments/German Credit dataset.csv'
+path = '/PATH/German Credit dataset.csv'
 # Numeric Quasi-identifiers in the dataset
 NQIs = ['age']
 # Categorical Quasi-identifiers in the dataset
@@ -40,7 +40,7 @@ SA = ['checking_status', 'savings_status']
 
 # # Adult Dataset
 # # Path to the dataset
-# path = '/Users/yusiwei/Library/CloudStorage/OneDrive-Personal/research/Third Year Paper/experiments/adult.csv'
+# path = '/PATH/adult.csv'
 # # Numeric Quasi-identifiers in the dataset
 # NQIs = ['age']
 # # Categorical Quasi-identifiers in the dataset
@@ -50,7 +50,7 @@ SA = ['checking_status', 'savings_status']
 
 # # Sepsis Patient Dataset
 # # Path to the dataset
-# path = '/Users/yusiwei/Library/CloudStorage/OneDrive-Personal/research/Third Year Paper/experiments/PSM-SepsisPatient.csv'
+# path = '/PATH/PSM-SepsisPatient.csv'
 # # Numeric Quasi-identifiers in the dataset
 # NQIs = ['AgeCategory',	'LOSDays',	'NumberofVisits']
 # # Categorical Quasi-identifiers in the dataset
