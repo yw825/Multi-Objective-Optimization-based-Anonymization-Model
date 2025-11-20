@@ -26,17 +26,8 @@ from constants import *
 
 def train_model_bootstrap(df, model, n_bootstrap, test_size=0.2):
 
-    # # Adult data
-    # if df.shape[1] == 15:
-    #     columns_to_drop = ['income_ >50K']
-    # else:
-    #     columns_to_drop = ['income_ >50K', 'cluster']
-
-    # German credit data
-    if df.shape[1] == 21:
-        columns_to_drop = ['credit_risk_good']
-    else:
-        columns_to_drop = ['credit_risk_good', 'cluster']
+    # Data
+    columns_to_drop = ['target variable in the data']
     
 
     # Lists to store metrics
@@ -51,8 +42,7 @@ def train_model_bootstrap(df, model, n_bootstrap, test_size=0.2):
     for i in range(n_bootstrap):
         # Prepare data
         X = df.drop(columns=columns_to_drop)
-        # y = df["income_ >50K"]
-        y = df["credit_risk_good"]
+        y = df["target variable in the data"]
 
         # Train-test split
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=i)
